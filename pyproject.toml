@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adif-manage"
+dynamic = ["version"]
+description = 'ADIF Manager'
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "src_resources", email = "src.res.211@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = []
+
+[project.scripts]
+adif-manage = "adif_manage.__main__:main"
+
+[project.urls]
+Documentation = "https://github.com/src_resources/adif-manage#readme"
+Issues = "https://github.com/src_resources/adif-manage/issues"
+Source = "https://github.com/src_resources/adif-manage"
+
+[tool.hatch.version]
+path = "src/adif_manage/__init__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/adif_manage tests}"
+
+[tool.coverage.run]
+source_pkgs = ["adif_manage", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/adif_manage/__about__.py",
+]
+
+[tool.coverage.paths]
+adif_manage = ["src/adif_manage", "*/adif-manage/src/adif_manage"]
+tests = ["tests", "*/adif-manage/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
