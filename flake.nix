@@ -47,8 +47,8 @@
           pyproject = true;
           build-system = [ pythonPkgs.hatchling ];
 
-          # No runtime dependencies
-          dependencies = [ ];
+          # Runtime dependencies
+          dependencies = [ pythonPkgs.prompt-toolkit ];
 
           # No optional dependency groups
           optional-dependencies = { };

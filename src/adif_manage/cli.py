@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import readline
 import sys
 from collections.abc import Callable
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 
 from . import __version__
 from .commands import BASE_COMMANDS, command_names, parse_command_line, parse_delete_target
@@ -24,25 +26,9 @@ quit-force
 """
 
 
-class CommandCompleter:
-    def __init__(self, words: tuple[str, ...]) -> None:
-        self.words = sorted(words)
-
-    def __call__(self, text: str, state: int) -> str | None:
-        matches = [word for word in self.words if word.startswith(text)]
-        if state < len(matches):
-            return matches[state]
-        return None
-
-
-def setup_readline() -> None:
-    try:
-        readline.parse_and_bind("tab: complete")
-        readline.parse_and_bind("set show-all-if-ambiguous on")
-        readline.parse_and_bind("set completion-query-items 200")
-        readline.set_completer(CommandCompleter(command_names()))
-    except Exception:
-        return
+def _make_prompt_session() -> PromptSession[str]:
+    completer = WordCompleter(command_names(), ignore_case=True)
+    return PromptSession(completer=completer)
 
 
 def _print_record(index: int, record: QSORecord, stdout_write: Callable[[str], None]) -> None:
@@ -52,14 +38,26 @@ def _print_record(index: int, record: QSORecord, stdout_write: Callable[[str], N
         stdout_write(f"  {key}={fields[key]}\n")
 
 
-def run_cli(state: SessionState, stdin_readline, stdout_write, stderr_write) -> int:
-    setup_readline()
-
+def run_cli(
+    state: SessionState,
+    stdin_readline,
+    stdout_write,
+    stderr_write,
+    prompt_func: Callable[[str], str] | None = None,
+) -> int:
     while True:
-        stdout_write("adif-manage> ")
-        line = stdin_readline()
-        if line == "":
-            return 0
+        if prompt_func is not None:
+            try:
+                line = prompt_func("adif-manage> ")
+            except KeyboardInterrupt:
+                continue
+            except EOFError:
+                return 0
+        else:
+            stdout_write("adif-manage> ")
+            line = stdin_readline()
+            if line == "":
+                return 0
 
         try:
             parsed = parse_command_line(line)
@@ -161,9 +159,11 @@ def run_app(startup_file: str | None) -> int:
             sys.stderr.write(f"{exc}\n")
             return 1
 
+    session = _make_prompt_session()
     return run_cli(
         state=state,
         stdin_readline=sys.stdin.readline,
         stdout_write=sys.stdout.write,
         stderr_write=sys.stderr.write,
+        prompt_func=session.prompt,
     )

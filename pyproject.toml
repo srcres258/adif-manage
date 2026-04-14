@@ -24,7 +24,9 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+  "prompt-toolkit>=3.0",
+]
 
 [project.scripts]
 adif-manage = "adif_manage.__main__:main"
