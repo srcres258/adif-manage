@@ -1,164 +1,180 @@
 # AGENTS.md — adif-manage
 
-Interactive ADIF file management tool. Python 3.9+ CLI package using hatchling.
+Interactive ADIF file management tool (Python 3.8+ CLI with prompt-toolkit). Built with hatchling, src layout.
 
-## Build / Run
-
-```bash
-pip install build && python -m build     # PEP 517 build
-nix build                                # Nix build
-pip install -e .                         # Dev install
-adif-manage [file]                       # Installed entrypoint
-PYTHONPATH=src python -m adif_manage [file]  # From source
-```
-
-## Test Commands
-
-Test runner: **pytest** (tests use `unittest.TestCase` but pytest discovers and runs them).
+## Quick Commands
 
 ```bash
-pytest                                              # All tests
-pytest tests/test_adif_codec.py                     # Single file
-pytest tests/test_adif_codec.py::TestAdifCodec::test_parse_and_write_roundtrip  # Single case
-python -m unittest tests.test_adif_codec.TestAdifCodec.test_parse_and_write_roundtrip  # Via unittest
-pytest -k "test_parse"                              # Keyword filter
-pytest -v                                           # Verbose
-```
+# Dev install
+pip install -e .
 
-## Type Checking
+# Run (installed)
+adif-manage [file]
 
-```bash
-# mypy (command from pyproject.toml hatch env)
+# Run (from source, no install)
+PYTHONPATH=src python -m adif_manage [file]
+
+# PEP 517 build
+pip install build && python -m build
+
+# Nix build
+nix build
+
+# Run all tests (pytest discovers unittest.TestCase)
+pytest
+pytest tests/test_adif_codec.py
+pytest tests/test_adif_codec.py::TestAdifCodec::test_parse_and_write_roundtrip
+pytest -k "test_parse" -v
+
+# Type check
 mypy --install-types --non-interactive src/adif_manage tests
+pyright                    # uses pyrightconfig.json (overrides pyproject.toml [tool.pyright])
 
-# pyright (uses pyrightconfig.json)
-pyright
-```
-
-## Coverage
-
-```bash
+# Coverage
 coverage run -m pytest
 coverage report -m
 ```
 
-No linter or formatter is configured (no ruff, black, flake8, isort, pre-commit).
+**Note**: pytest, coverage, mypy, and pyright are NOT declared as dev-dependencies in pyproject.toml.
+Install them separately (`pip install pytest coverage mypy pyright`).
 
 ## Project Structure
 
 ```
-src/adif_manage/          # Main package (src layout)
-  __init__.py             # Version
-  __main__.py             # Entry point: main()
-  cli.py                  # CLI loop (run_cli, run_app)
-  commands.py             # Command parsing & validation
-  record_flow.py          # Interactive QSO record entry
-  adif_codec.py           # ADIF parse/serialize (pure functions)
-  storage.py              # File I/O (read/write ADIF files)
-  models.py               # Dataclasses (QSORecord, SessionState)
-  errors.py               # Domain exceptions
-tests/                    # Unit & integration tests
-  __init__.py             # Adds src/ to sys.path
-pyproject.toml            # Build config, coverage, mypy, pyright
-pyrightconfig.json        # pyright include/extraPaths
-flake.nix                 # Nix build
+src/adif_manage/          # Package (src layout)
+  __init__.py             # __version__ = "0.1.0" (hatch reads this for dynamic version)
+  __main__.py             # main() → parses sys.argv, calls run_app()
+  cli.py                  # run_cli() (testable with injectable I/O), run_app() (wires real I/O)
+  commands.py             # Parse/validate commands, delete targets, aliases
+  record_flow.py          # Interactive field-by-field QSO entry
+  adif_codec.py           # ADI parse/serialize (pure functions, no I/O)
+  storage.py              # File I/O using pathlib.Path, wraps OSError → WriteError
+  models.py               # QSORecord, SessionState (mutable, not frozen)
+  errors.py               # AdifManageError → AdifParseError, CommandError, WriteError
+tests/
+  __init__.py             # Adds src/ to sys.path (imports use `from src.adif_manage.X`)
+  test_adif_codec.py
+  test_command_parsing.py
+  test_integration_cli.py # Tests run_cli() with injected stdin/stdout/stderr callables
+  test_record_flow.py
+pyproject.toml            # Build + mypy + pyright + coverage config
+pyrightconfig.json        # pyright config (takes precedence over pyproject.toml [tool.pyright])
+flake.nix                 # Nix package build
 ```
+
+### Package entrypoints
+
+- **`__main__.py:main()`**: CLI entrypoint. Returns `int` exit code. Parses `sys.argv[1]` as optional startup file.
+- **`cli.py:run_app()`**: Creates prompt-toolkit session, calls `run_cli()` with real I/O. Returns exit code 1 if startup file can't be read.
+- **`cli.py:run_cli()`**: The testable core loop. Accepts injectable `stdin_readline`, `stdout_write`, `stderr_write`, and optional `prompt_func` callables.
+
+### Test injection pattern
+
+`run_cli()` is the primary test surface. Tests supply lambdas for I/O:
+
+```python
+run_cli(
+    state=SessionState(),
+    stdin_readline=lambda: next(inputs),
+    stdout_write=lambda s: output.append(s),
+    stderr_write=lambda s: errors.append(s),
+)
+```
+
+This pattern is used across `test_integration_cli.py` and `test_record_flow.py`.
+
+## CLI Commands & Aliases
+
+| Command | Aliases | Description |
+|---|---|---|
+| `help` | `h` | Show help |
+| `list` | `ls` | List all records |
+| `record` | `rec` | Interactive QSO entry |
+| `read <file>` | `r <file>` | Load ADI file |
+| `write <file>` | `w <file>` | Write ADI file (fails if exists) |
+| `write-force <file>` | `wf <file>` | Overwrite/create parent dirs |
+| `delete <n>` or `<m-n>` | `d <n>` / `d <m-n>` | Delete record(s) by 1-based index |
+| `quit` | `q` | Quit (fails if dirty) |
+| `quit-force` | `qf` | Force quit |
+
+Defined in `commands.py`: `BASE_COMMANDS` + `ALIASES` dict.
+
+## Architecture Notes
+
+### adif_codec.py — Pure functions, no side effects
+
+- `parse_adi(content: str) -> list[QSORecord]` — parses ADI text, raises `AdifParseError`
+- `to_adi(records, adif_version, program_version) -> str` — serializes to ADI
+- `missing_required_fields(fields) -> list[str]` — checks QSO_DATE, TIME_ON, CALL, MODE, FREQ/BAND
+- `validate_core_field_formats(fields) -> list[str]` — validates date/time format
+- ADI version hardcoded to `"3.1.7"` in `cli.py` (line 115)
+
+### storage.py — File I/O with domain error wrapping
+
+- `read_records(path: str) -> list[QSORecord]` — reads + parses, wraps OSError → `WriteError`
+- `write_records(...)` → `WriteOutcome` — writes ADI, supports overwrite + mkdir parents
+- Uses `"x"` mode for create-only, `"w"` for overwrite
+- **Non-obvious**: `read_records` maps OSError to `WriteError` (not `ReadError`). This is intentional — `cli.py` catches only `WriteError` from both read and write operations.
+
+### models.py — Mutable dataclasses
+
+- `QSORecord` and `SessionState` are `@dataclass` (NOT frozen) — they're mutated in-place during CLI operations
+- `QSORecord.normalized()` returns a new instance with uppercased keys and stripped values
+- `SessionState.dirty` tracks whether in-memory state differs from disk
+
+### Error handling convention
+
+- **Parsing** (adif_codec): raises domain errors directly
+- **Validation** (record_flow): returns error lists, caller decides
+- **Storage** (storage): wraps OSError → `WriteError` with `from exc` chain
+- **CLI** (cli): catches `CommandError` and `WriteError`, writes messages to stderr in Chinese
+
+### Sequence: write command path reuse
+
+Both `write` and `write-force` fall back to `state.last_write_path` when no argument is given. Path is remembered from last explicit write argument.
 
 ## Code Style
 
 ### Imports
-- **Always** start modules with `from __future__ import annotations`
+- **Always** start source modules with `from __future__ import annotations` (required for Python 3.8/3.9 support of PEP 604 unions)
 - Group: stdlib → third-party → relative locals (blank line between groups)
-- Use explicit relative imports within package: `from .models import QSORecord`
+- Relative imports within package: `from .models import QSORecord`
+- Tests import via `from src.adif_manage.X import Y` (enabled by `tests/__init__.py` adding `src/` to `sys.path`)
 
-```python
-from __future__ import annotations
-import sys
-from collections.abc import Callable
-
-from prompt_toolkit import PromptSession
-
-from . import __version__
-from .commands import BASE_COMMANDS
-```
-
-### Naming
-- **Modules/files**: `snake_case` (`adif_codec.py`, `record_flow.py`)
-- **Functions**: `snake_case` (`run_cli`, `parse_command_line`)
-- **Variables**: `lower_snake` (`file_path`, `created_directory`)
-- **Classes/dataclasses**: `PascalCase` (`QSORecord`, `SessionState`)
-- **Constants**: `UPPER_SNAKE` (`CORE_REQUIRED_FIELDS`, `ALL_QSO_FIELDS`)
-- **Private helpers**: `_prefix` (`_make_prompt_session`, `_field_label`)
-
-### Types
-- Use built-in generics: `list[str]`, `dict[str, str]` (not `List`, `Dict`)
+### Types & Dataclasses
+- Use built-in generics: `list[str]`, `dict[str, str]`
 - Use PEP 604 unions: `str | None` (not `Optional[str]`)
 - Annotate all public function signatures and dataclass fields
+- `@dataclass(frozen=True)` for command/value objects (`ParsedCommand`, `DeleteTarget`)
+- `@dataclass` (mutable) for state objects (`QSORecord`, `SessionState`)
+- `field(default_factory=...)` for mutable defaults
 
-```python
-@dataclass(frozen=True)
-class ParsedCommand:
-    name: str
-    argument: str | None
-```
-
-### Dataclasses
-- Use `@dataclass` for domain objects and result types
-- Use `frozen=True` for immutable command/value objects
-- Use `field(default_factory=...)` for mutable defaults
-
-### Error Handling
-- Domain exceptions live in `errors.py` — inherit from `AdifManageError`
-- Wrap low-level exceptions with `raise DomainError(...) from exc`
-- CLI catches domain exceptions and writes user-facing messages to stderr
-- Validation helpers return error lists (`list[str]`), not exceptions
-
-```python
-# errors.py
-class AdifManageError(Exception): pass
-class AdifParseError(AdifManageError): pass
-class CommandError(AdifManageError): pass
-class WriteError(AdifManageError): pass
-
-# storage.py — wrap OSError
-try:
-    content = file_path.read_text(encoding="utf-8")
-except OSError as exc:
-    raise WriteError(f"读取文件失败: {exc}") from exc
-```
-
-### File I/O
-- Use `pathlib.Path` (not `os.path`)
-- Always specify `encoding="utf-8"`
-- Use `"x"` mode for create-only, `"w"` for overwrite
-- Return outcome dataclasses for multi-faceted results
+### Naming
+- Modules/files: `snake_case`
+- Functions/variables: `snake_case`
+- Classes/dataclasses: `PascalCase`
+- Constants: `UPPER_SNAKE`
+- Private helpers: `_prefix`
 
 ### Formatting
-- 4-space indentation
-- f-strings for formatted messages
+- 4-space indentation, double quotes, f-strings
 - Two blank lines between top-level definitions
-- Double quotes for strings (observed convention)
+- No linter or formatter configured (no ruff, black, flake8, isort, pre-commit)
 
-## Testing Patterns
+## Testing
 
-- Tests use `unittest.TestCase`; pytest runs them
-- Inject I/O via callables to isolate user interaction (see `test_integration_cli.py`)
-- Tests import via `src.adif_manage.*` (tests/__init__.py adds `src/` to path)
-- File under `tests/test_<module>.py`
+- Tests use `unittest.TestCase`; pytest discovers and runs them
+- Tests import from `src.adif_manage.X` (NOT relative imports)
+- Injectable I/O pattern: `run_cli()` accepts callables for stdin/stdout/stderr
+- Single test case: `pytest tests/test_file.py::TestClass::test_name`
+- No CI configured, no test isolation needed (no DB, no external services)
 
-## Architecture
+## Language
 
-- **cli.py**: Top-level CLI loop, coordinates all modules
-- **commands.py**: Parse/validate CLI commands (returns `ParsedCommand`)
-- **record_flow.py**: Interactive data entry with validation
-- **adif_codec.py**: Pure ADIF parse/serialize functions
-- **storage.py**: Filesystem operations, wraps errors
-- **models.py**: Data carriers and normalization
-- **errors.py**: Exception hierarchy
+- User-facing messages: **Chinese** (e.g., "当前没有 QSO 条目", "命令输入错误")
+- ADIF field names/identifiers: **English** (QSO_DATE, CALL, MODE, etc.)
 
-Separation principle: parsing returns values or raises domain errors; validation returns error lists; storage translates OSErrors into `WriteError`.
+## Known Config Oddities
 
-## Language Notes
-
-- User-facing messages are in **Chinese** (e.g., "当前没有 QSO 条目", "命令输入错误")
-- Field names and ADIF identifiers are in **English** (e.g., QSO_DATE, CALL, MODE)
+- **Dual pyright config**: both `pyproject.toml [tool.pyright]` and `pyrightconfig.json` exist. `pyrightconfig.json` takes precedence.
+- **Coverage omits phantom file**: `[tool.coverage.run] omit` lists `src/adif_manage/__about__.py` which doesn't exist — harmless, but don't create an `__about__.py` file.
