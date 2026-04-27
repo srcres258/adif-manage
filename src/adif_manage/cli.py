@@ -81,9 +81,15 @@ def run_cli(
             continue
 
         if name == "record":
-            data = run_record_interaction(stdin_readline=stdin_readline, stdout_write=stdout_write)
-            if data is not None:
-                state.records.append(QSORecord(fields=data).normalized())
+            result = run_record_interaction(
+                stdin_readline=stdin_readline,
+                stdout_write=stdout_write,
+                last_fields=state.last_record_fields,
+            )
+            if result is not None:
+                fields, snapshot = result
+                state.records.append(QSORecord(fields=fields).normalized())
+                state.last_record_fields = snapshot
                 state.dirty = True
             continue
 

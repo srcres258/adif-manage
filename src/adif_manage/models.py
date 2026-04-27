@@ -22,3 +22,4 @@ class SessionState:
     records: list[QSORecord] = field(default_factory=list)
     dirty: bool = False
     last_write_path: str | None = None
+    last_record_fields: dict[str, str] = field(default_factory=dict)

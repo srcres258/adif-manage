@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from .adif_codec import missing_required_fields, validate_core_field_formats
+from datetime import datetime
+
+from .adif_codec import DATE_PATTERN, TIME_PATTERN, missing_required_fields, validate_core_field_formats
 
 ALL_QSO_FIELDS = [
     "ADDRESS","ADDRESS_INTL","AGE","ALTITUDE","ANT_AZ","ANT_EL","ANT_PATH","ARRL_SECT","AWARD_GRANTED","AWARD_SUBMITTED","A_INDEX",
@@ -22,25 +24,135 @@ ALL_QSO_FIELDS = [
     "SAT_MODE","SAT_NAME","SFI","SIG","SIG_INTL","SIG_INFO","SIG_INFO_INTL","SILENT_KEY","SKCC","SOTA_REF","SRX","SRX_STRING","STATE","STATION_CALLSIGN","STX","STX_STRING","SUBMODE","SWL",
     "TEN_TEN","TIME_OFF","TIME_ON","TX_PWR",
     "UKSMG","USACA_COUNTIES","VE_PROV","VUCC_GRIDS","WEB","WWFF_REF",
+    "APP_ADIFMANAGE_WX",
 ]
 
-REQUIRED_FIELDS = ["QSO_DATE", "TIME_ON", "CALL", "MODE", "FREQ/BAND"]
+REQUIRED_FIELD_SEQUENCE = [
+    ("日期 DATE", "QSO_DATE", "YYYYMMDD", True),
+    ("时间 TIME", "TIME_ON", "HHMM 或 HHMMSS", True),
+    ("呼号 CALLSIGN", "CALL", "", True),
+    ("频率 MHz", "FREQ", "如 14.250", True),
+    ("模式 MODE", "MODE", "如 SSB,CW,FT8", True),
+    ("信号 RST (己方发送)", "RST_SENT", "如 599", False),
+    ("信号 RST (收到对方)", "RST_RCVD", "如 599", False),
+    ("功率 PWR (己方发射)", "TX_PWR", "如 100W", False),
+    ("功率 PWR (对方发射)", "RX_PWR", "如 100W", False),
+    ("位置 QTH", "QTH", "", False),
+    ("设备 RIG", "RIG", "如 IC-7300", False),
+    ("天线 ANT", "MY_ANTENNA", "如 DP", False),
+    ("天气 WX", "APP_ADIFMANAGE_WX", "", False),
+]
 
 
-def _field_label(field_name: str) -> str:
-    if field_name in {"QSO_DATE", "TIME_ON", "CALL", "MODE", "FREQ", "BAND"}:
-        return "必选"
-    return "可选"
+def run_record_interaction(stdin_readline, stdout_write, last_fields=None):
+    if last_fields is None:
+        last_fields = {}
 
-
-def run_record_interaction(stdin_readline, stdout_write):
     fields: dict[str, str] = {}
+    snapshot: dict[str, str] = dict(last_fields)
+
+    stdout_write("\n=== 必填字段录入（请依次输入） ===\n")
+
+    for label, field_name, hint, required in REQUIRED_FIELD_SEQUENCE:
+        last_value = last_fields.get(field_name)
+
+        while True:
+            prompt_parts = [f"请输入 {label}"]
+            if hint:
+                prompt_parts.append(f" [{hint}]")
+
+            if last_value:
+                prompt_parts.append(f" (上次: {last_value})")
+                if required:
+                    prompt_parts.append(" [回车保留]")
+                else:
+                    prompt_parts.append(" [回车保留, - 跳过]")
+            else:
+                if not required:
+                    prompt_parts.append(" [回车跳过]")
+
+            prompt_parts.append(": ")
+            stdout_write("".join(prompt_parts))
+
+            value = stdin_readline().strip()
+
+            if value == "":
+                if last_value:
+                    value = last_value
+                elif required:
+                    stdout_write("此字段为必填，不能跳过\n")
+                    continue
+                else:
+                    break
+
+            if value == "-":
+                if required:
+                    stdout_write("此字段为必填，不能跳过\n")
+                    continue
+                else:
+                    break
+
+            fields[field_name] = value
+            snapshot[field_name] = value
+
+            if field_name == "QSO_DATE":
+                if not DATE_PATTERN.match(value):
+                    stdout_write("日期格式错误，请输入 YYYYMMDD 格式\n")
+                    fields.pop(field_name, None)
+                    continue
+                try:
+                    datetime.strptime(value, "%Y%m%d")
+                except ValueError:
+                    stdout_write("日期无效，请输入有效的日期\n")
+                    fields.pop(field_name, None)
+                    continue
+
+            if field_name == "TIME_ON":
+                if not TIME_PATTERN.match(value):
+                    stdout_write("时间格式错误，请输入 HHMM 或 HHMMSS 格式\n")
+                    fields.pop(field_name, None)
+                    continue
+                if len(value) == 4:
+                    hh = int(value[0:2])
+                    mm = int(value[2:4])
+                    if hh > 23 or mm > 59:
+                        stdout_write("时间范围无效\n")
+                        fields.pop(field_name, None)
+                        continue
+                else:
+                    hh = int(value[0:2])
+                    mm = int(value[2:4])
+                    ss = int(value[4:6])
+                    if hh > 23 or mm > 59 or ss > 59:
+                        stdout_write("时间范围无效\n")
+                        fields.pop(field_name, None)
+                        continue
+
+            break
+
+    stdout_write("\n=== 选填字段 ===\n")
+    already_filled = set(fields.keys())
+    available = [f for f in ALL_QSO_FIELDS if f not in already_filled]
 
     while True:
-        for index, field_name in enumerate(ALL_QSO_FIELDS, start=1):
-            stdout_write(f"{index}: {field_name} ({_field_label(field_name)})\n")
-        stdout_write("输入字段编号进行填写，输入 q 完成，输入 qf 强制结束: ")
+        stdout_write("输入编号填写字段，0 完成，q 完成，qf 强制结束:\n")
+        for i, name in enumerate(available, start=1):
+            lv = last_fields.get(name)
+            tag = f" (上次: {lv})" if lv else ""
+            stdout_write(f"  {i:3d}: {name}{tag}\n")
+
         choice = stdin_readline().strip()
+
+        if choice == "0":
+            missing = missing_required_fields(fields)
+            format_errors = validate_core_field_formats(fields)
+            if missing:
+                stdout_write("请填写所有必填字段再完成\n")
+                continue
+            if format_errors:
+                stdout_write(f"字段格式错误: {', '.join(format_errors)}\n")
+                continue
+            return fields, snapshot
 
         if choice == "q":
             missing = missing_required_fields(fields)
@@ -51,7 +163,7 @@ def run_record_interaction(stdin_readline, stdout_write):
             if format_errors:
                 stdout_write(f"字段格式错误: {', '.join(format_errors)}\n")
                 continue
-            return fields
+            return fields, snapshot
 
         if choice == "qf":
             missing = missing_required_fields(fields)
@@ -59,21 +171,25 @@ def run_record_interaction(stdin_readline, stdout_write):
             if missing or format_errors:
                 stdout_write("您未录入所有必填字段，QSO 记录失败\n")
                 return None
-            return fields
+            return fields, snapshot
 
         if not choice.isdigit():
-            stdout_write("输入无效，请输入字段编号或 q/qf\n")
+            stdout_write("输入无效，请输入字段编号、0、q 或 qf\n")
             continue
 
-        position = int(choice)
-        if position < 1 or position > len(ALL_QSO_FIELDS):
-            stdout_write("输入无效，请输入字段编号或 q/qf\n")
+        idx = int(choice)
+        if idx < 1 or idx > len(available):
+            stdout_write("编号超出范围\n")
             continue
 
-        field_name = ALL_QSO_FIELDS[position - 1]
-        stdout_write(f"请输入 {field_name}: ")
+        field_name = available[idx - 1]
+        lv = last_fields.get(field_name, "")
+        hint = f" (上次: {lv})" if lv else ""
+        stdout_write(f"请输入 {field_name}{hint}: ")
         value = stdin_readline().strip()
+
         if value:
             fields[field_name] = value
+            snapshot[field_name] = value
         elif field_name in fields:
             fields.pop(field_name)
