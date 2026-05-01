@@ -28,6 +28,7 @@ pytest -k "test_parse" -v
 
 # Type check
 mypy --install-types --non-interactive src/adif_manage tests
+hatch run types:check           # same as above, via hatch env
 pyright                    # uses pyrightconfig.json (overrides pyproject.toml [tool.pyright])
 
 # Coverage
@@ -107,12 +108,14 @@ Defined in `commands.py`: `BASE_COMMANDS` + `ALIASES` dict.
 - `to_adi(records, adif_version, program_version) -> str` — serializes to ADI
 - `missing_required_fields(fields) -> list[str]` — checks QSO_DATE, TIME_ON, CALL, MODE, FREQ/BAND
 - `validate_core_field_formats(fields) -> list[str]` — validates date/time format
-- ADI version hardcoded to `"3.1.7"` in `cli.py` (line 115)
+- ADI version hardcoded to `"3.1.7"` in `cli.py` (line 121)
+- **Field ordering**: `_ordered_field_names()` outputs core fields (QSO_DATE, TIME_ON, CALL, MODE, FREQ, BAND if present) first, then remaining fields alphabetical
 
 ### storage.py — File I/O with domain error wrapping
 
 - `read_records(path: str) -> list[QSORecord]` — reads + parses, wraps OSError → `WriteError`
 - `write_records(...)` → `WriteOutcome` — writes ADI, supports overwrite + mkdir parents
+- `WriteOutcome` dataclass has `created_directory: bool` and `overwritten_file: bool`
 - Uses `"x"` mode for create-only, `"w"` for overwrite
 - **Non-obvious**: `read_records` maps OSError to `WriteError` (not `ReadError`). This is intentional — `cli.py` catches only `WriteError` from both read and write operations.
 
@@ -132,6 +135,17 @@ Defined in `commands.py`: `BASE_COMMANDS` + `ALIASES` dict.
 ### Sequence: write command path reuse
 
 Both `write` and `write-force` fall back to `state.last_write_path` when no argument is given. Path is remembered from last explicit write argument.
+
+### record_flow.py — Interactive QSO entry
+
+- `run_record_interaction(stdin_readline, stdout_write, last_fields)` returns `(dict, dict) | None`
+- Returns `None` only when user force-exits (`qf`) with missing required fields — `cli.py` checks for `None` and skips adding the record
+- The first dict is the new QSO fields, the second is a `snapshot` (merged `last_fields` + new inputs) saved as `state.last_record_fields` for memory across sessions
+- Custom field: `APP_ADIFMANAGE_WX` appears in `REQUIRED_FIELD_SEQUENCE` and `ALL_QSO_FIELDS` — a project-specific extension
+
+### commands.py — Parse behavior
+
+- `parse_command_line()` preserves **original whitespace** from the user input line when extracting the argument for `read`/`write`/`write-force` commands — so paths containing spaces work without quoting (line 63 takes `line.strip()[len(parts[0]):].lstrip()`) rather than the split result
 
 ## Code Style
 
@@ -178,3 +192,4 @@ Both `write` and `write-force` fall back to `state.last_write_path` when no argu
 
 - **Dual pyright config**: both `pyproject.toml [tool.pyright]` and `pyrightconfig.json` exist. `pyrightconfig.json` takes precedence.
 - **Coverage omits phantom file**: `[tool.coverage.run] omit` lists `src/adif_manage/__about__.py` which doesn't exist — harmless, but don't create an `__about__.py` file.
+- **Version in two places**: Python package version lives in `src/adif_manage/__init__.py` (`__version__`). Nix package version is independently set in `flake.nix` (`version = "0.2.0"`). Update both when bumping.
