@@ -108,7 +108,7 @@ Defined in `commands.py`: `BASE_COMMANDS` + `ALIASES` dict.
 - `to_adi(records, adif_version, program_version) -> str` — serializes to ADI
 - `missing_required_fields(fields) -> list[str]` — checks QSO_DATE, TIME_ON, CALL, MODE, FREQ/BAND
 - `validate_core_field_formats(fields) -> list[str]` — validates date/time format
-- ADI version hardcoded to `"3.1.7"` in `cli.py` (line 121)
+- ADI version hardcoded to `"3.1.7"` in `cli.py` (line 122)
 - **Field ordering**: `_ordered_field_names()` outputs core fields (QSO_DATE, TIME_ON, CALL, MODE, FREQ, BAND if present) first, then remaining fields alphabetical
 
 ### storage.py — File I/O with domain error wrapping
@@ -192,4 +192,4 @@ Both `write` and `write-force` fall back to `state.last_write_path` when no argu
 
 - **Dual pyright config**: both `pyproject.toml [tool.pyright]` and `pyrightconfig.json` exist. `pyrightconfig.json` takes precedence.
 - **Coverage omits phantom file**: `[tool.coverage.run] omit` lists `src/adif_manage/__about__.py` which doesn't exist — harmless, but don't create an `__about__.py` file.
-- **Version in two places**: Python package version lives in `src/adif_manage/__init__.py` (`__version__`). Nix package version is independently set in `flake.nix` (`version = "0.2.0"`). Update both when bumping.
+- **Version in two places**: Python package version lives in `src/adif_manage/__init__.py` (`__version__`). Nix package version is independently set in `flake.nix` (`version = "0.2.1"`). Update both when bumping.
