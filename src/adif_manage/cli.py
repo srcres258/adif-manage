@@ -85,6 +85,7 @@ def run_cli(
                 stdin_readline=stdin_readline,
                 stdout_write=stdout_write,
                 last_fields=state.last_record_fields,
+                prompt_func=prompt_func,
             )
             if result is not None:
                 fields, snapshot = result

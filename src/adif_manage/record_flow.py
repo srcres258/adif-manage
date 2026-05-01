@@ -44,12 +44,18 @@ REQUIRED_FIELD_SEQUENCE = [
 ]
 
 
-def run_record_interaction(stdin_readline, stdout_write, last_fields=None):
+def run_record_interaction(stdin_readline, stdout_write, last_fields=None, prompt_func=None):
     if last_fields is None:
         last_fields = {}
 
     fields: dict[str, str] = {}
     snapshot: dict[str, str] = dict(last_fields)
+
+    def _read_input(prompt_text: str) -> str:
+        if prompt_func is not None:
+            return prompt_func(prompt_text).strip()
+        stdout_write(prompt_text)
+        return stdin_readline().strip()
 
     stdout_write("\n=== 必填字段录入（请依次输入） ===\n")
 
@@ -72,9 +78,7 @@ def run_record_interaction(stdin_readline, stdout_write, last_fields=None):
                     prompt_parts.append(" [回车跳过]")
 
             prompt_parts.append(": ")
-            stdout_write("".join(prompt_parts))
-
-            value = stdin_readline().strip()
+            value = _read_input("".join(prompt_parts))
 
             if value == "":
                 if last_value:
@@ -141,7 +145,7 @@ def run_record_interaction(stdin_readline, stdout_write, last_fields=None):
             tag = f" (上次: {lv})" if lv else ""
             stdout_write(f"  {i:3d}: {name}{tag}\n")
 
-        choice = stdin_readline().strip()
+        choice = _read_input("> ")
 
         if choice == "0":
             missing = missing_required_fields(fields)
@@ -185,8 +189,7 @@ def run_record_interaction(stdin_readline, stdout_write, last_fields=None):
         field_name = available[idx - 1]
         lv = last_fields.get(field_name, "")
         hint = f" (上次: {lv})" if lv else ""
-        stdout_write(f"请输入 {field_name}{hint}: ")
-        value = stdin_readline().strip()
+        value = _read_input(f"请输入 {field_name}{hint}: ")
 
         if value:
             fields[field_name] = value
