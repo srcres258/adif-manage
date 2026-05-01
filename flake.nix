@@ -41,7 +41,7 @@
       {
         packages.default = pythonPkgs.buildPythonApplication {
           pname = "adif-manage";
-          version = "0.2.0";
+          version = "0.2.1";
           inherit src;
 
           pyproject = true;
